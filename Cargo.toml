@@ -1,0 +1,19 @@
+[package]
+name = "fdad-radar"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Rust library for the FDAD-DCT radar interface protocol (control channel + data frames)"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["radar", "protocol", "uav", "fdad", "crc16"]
+categories = ["network-programming", "parser-implementations"]
+
+[lib]
+name = "fdad_radar"
+path = "src/lib.rs"
+
+[dependencies]
+# intentionally none: builds fully offline on stable Rust
+
+[dev-dependencies]
