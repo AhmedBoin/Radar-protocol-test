@@ -20,9 +20,18 @@ fn main() {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--secs" => { i += 1; secs = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(15); }
-            "--setreg" => { i += 1; setreg = args.get(i).cloned(); }
-            "--json" => { i += 1; json = args.get(i).cloned(); }
+            "--secs" => {
+                i += 1;
+                secs = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(15);
+            }
+            "--setreg" => {
+                i += 1;
+                setreg = args.get(i).cloned();
+            }
+            "--json" => {
+                i += 1;
+                json = args.get(i).cloned();
+            }
             a if !a.starts_with("--") => addr = a.to_string(),
             _ => {}
         }
@@ -32,16 +41,25 @@ fn main() {
     println!("connecting to {addr} ...");
     let mut c = match RadarClient::connect(&addr, Some(Duration::from_millis(1500))) {
         Ok(c) => c,
-        Err(e) => { eprintln!("connect failed: {e}"); return; }
+        Err(e) => {
+            eprintln!("connect failed: {e}");
+            return;
+        }
     };
     println!("connected");
 
     if let Some(js) = &json {
-        match c.set_json(js) { Ok(n) => println!("sent SetJson  (counter {n})"), Err(e) => eprintln!("set_json: {e}") }
+        match c.set_json(js) {
+            Ok(n) => println!("sent SetJson  (counter {n})"),
+            Err(e) => eprintln!("set_json: {e}"),
+        }
     }
     if let Some(sr) = &setreg {
         let regs = parse_regs(sr);
-        match c.set_register(&regs) { Ok(n) => println!("sent SetRegister {regs:?} (counter {n})"), Err(e) => eprintln!("set_register: {e}") }
+        match c.set_register(&regs) {
+            Ok(n) => println!("sent SetRegister {regs:?} (counter {n})"),
+            Err(e) => eprintln!("set_register: {e}"),
+        }
     }
 
     let start = Instant::now();
@@ -50,7 +68,9 @@ fn main() {
     let mut last_frame = 0u64;
     while start.elapsed() < Duration::from_secs(secs) {
         if last_hb.elapsed() >= Duration::from_secs(10) {
-            if let Ok(n) = c.heartbeat() { println!("hb counter {n}"); }
+            if let Ok(n) = c.heartbeat() {
+                println!("hb counter {n}");
+            }
             last_hb = Instant::now();
         }
         match c.recv() {
@@ -59,12 +79,21 @@ fn main() {
                     match m.mtype {
                         MessageType::Data => {
                             data += 1;
-                            if let Ok((h, rec)) = messages::parse_data(&m.body) {
+                            if let Ok(d) = messages::parse_data_message(&m.body) {
+                                let h = &d.header;
                                 if data <= 4 || h.frame_num != last_frame + 1 {
                                     println!(
-                                        "DATA ctr={} frameNum={} ts={} bA={} bB={} rec={}B mac={:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                                        m.counter, h.frame_num, h.timestamp, h.boundary_a, h.boundary_b,
-                                        rec.len(), h.mac[0], h.mac[1], h.mac[2], h.mac[3], h.mac[4], h.mac[5]
+                                        "DATA ctr={} frameNum={} ts={} sweep={:.2}..{:.2} deg  targets={}  mac={:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                                        m.counter, h.frame_num, h.timestamp,
+                                        h.boundary_a_deg(), h.boundary_b_deg(), d.records.len(),
+                                        h.mac[0], h.mac[1], h.mac[2], h.mac[3], h.mac[4], h.mac[5]
+                                    );
+                                }
+                                for t in &d.records {
+                                    println!(
+                                        "   id={:<6} dist={:8.1}m az={:6.1}deg h={:7.1}m spd={:6.1}m/s hdg={:6.1}deg snr={:5.1} rcs={:6.2}",
+                                        t.id, t.distance_m(), t.azimuth_deg(), t.height_m(),
+                                        t.speed_mps(), t.heading_deg(), t.snr(), t.rcs()
                                     );
                                 }
                                 last_frame = h.frame_num;

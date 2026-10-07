@@ -42,7 +42,10 @@ impl Frame {
     /// Decode a complete frame (exactly one whole frame, CRC-checked).
     pub fn decode(buf: &[u8]) -> Result<Self> {
         if buf.len() < HEADER_LEN {
-            return Err(Error::FrameTooShort { len: buf.len(), min: HEADER_LEN });
+            return Err(Error::FrameTooShort {
+                len: buf.len(),
+                min: HEADER_LEN,
+            });
         }
         let magic = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
         if magic != MAGIC {
@@ -54,14 +57,20 @@ impl Frame {
         }
         let total = HEADER_LEN + len;
         if buf.len() < total {
-            return Err(Error::FrameTooShort { len: buf.len(), min: total });
+            return Err(Error::FrameTooShort {
+                len: buf.len(),
+                min: total,
+            });
         }
         let pl_end = HEADER_LEN + len - CRC_LEN;
         let payload = buf[HEADER_LEN..pl_end].to_vec();
         let stored = u16::from_le_bytes([buf[pl_end], buf[pl_end + 1]]);
         let crc = crc16_modbus(&payload);
         if crc != stored {
-            return Err(Error::BadCrc { expected: crc, found: stored });
+            return Err(Error::BadCrc {
+                expected: crc,
+                found: stored,
+            });
         }
         Ok(Frame { payload })
     }
@@ -98,7 +107,8 @@ impl FrameReader {
             if self.buf.len() < HEADER_LEN {
                 break;
             }
-            let len = u32::from_be_bytes([self.buf[4], self.buf[5], self.buf[6], self.buf[7]]) as usize;
+            let len =
+                u32::from_be_bytes([self.buf[4], self.buf[5], self.buf[6], self.buf[7]]) as usize;
             let total = HEADER_LEN + len;
             if self.buf.len() < total {
                 break;
@@ -119,11 +129,16 @@ mod tests {
 
     #[test]
     fn roundtrip() {
-        let f = Frame::new(vec![0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x5e, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let f = Frame::new(vec![
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x5e, 0, 0, 0, 0, 0, 0, 0, 0,
+        ]);
         let b = f.encode();
         assert_eq!(&b[0..4], &[0x55, 0xAA, 0x55, 0xAA]);
         // heartbeat from the live capture ends with CRC 0x120C -> 0C 12
-        assert_eq!(&b[..26], &hex("55aa55aa00000012000000010000005e00000000000000000c12")[..]);
+        assert_eq!(
+            &b[..26],
+            &hex("55aa55aa00000012000000010000005e00000000000000000c12")[..]
+        );
         assert_eq!(Frame::decode(&b).unwrap(), f);
     }
 
@@ -136,11 +151,14 @@ mod tests {
         let mut r = FrameReader::new();
         // feed in awkward chunks
         let mut got = r.push(&stream[..3]);
-        got.extend(r.push(&stream[3..])); 
+        got.extend(r.push(&stream[3..]));
         assert_eq!(got.len(), 2);
     }
 
     fn hex(s: &str) -> Vec<u8> {
-        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
     }
 }

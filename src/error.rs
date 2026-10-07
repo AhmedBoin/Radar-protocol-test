@@ -37,10 +37,15 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::FrameTooShort { len, min } => write!(f, "frame too short: {len} bytes (need {min})"),
+            Error::FrameTooShort { len, min } => {
+                write!(f, "frame too short: {len} bytes (need {min})")
+            }
             Error::BadMagic(m) => write!(f, "bad frame magic 0x{m:08X} (want 0x55AA55AA)"),
             Error::BadCrc { expected, found } => {
-                write!(f, "CRC-16 mismatch: computed 0x{expected:04X}, frame has 0x{found:04X}")
+                write!(
+                    f,
+                    "CRC-16 mismatch: computed 0x{expected:04X}, frame has 0x{found:04X}"
+                )
             }
             Error::TruncatedPayload { need, have } => {
                 write!(f, "truncated payload: need {need} bytes, have {have}")
@@ -61,4 +66,3 @@ impl From<std::io::Error> for Error {
 
 /// Convenience result alias.
 pub type Result<T> = std::result::Result<T, Error>;
-

@@ -12,6 +12,9 @@
 //! ```
 //!
 //! ## Messages — payload starts with `type(u32) | counter(u32)`
+//!
+//! Enable the optional **`serde`** feature to derive `Serialize`/`Deserialize`
+//! (camelCase JSON) on all types, for Tauri v2 / JS frontends. See `TAURI.md`.
 //! | type | dir | meaning |
 //! |---|---|---|
 //! | `0x00000001` | app→radar | heartbeat |
@@ -39,7 +42,10 @@ pub mod messages;
 pub use client::RadarClient;
 pub use error::{Error, Result};
 pub use frame::Frame;
-pub use messages::{DataHeader, Message, MessageType};
+pub use messages::{
+    data_message, parse_data, parse_data_message, parse_records, DataHeader, DataMessage, Message,
+    MessageType, Record, Sweep, Target, RECORD_LEN,
+};
 
 /// Protocol constants.
 pub mod consts {

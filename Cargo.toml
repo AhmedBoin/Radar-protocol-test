@@ -1,12 +1,12 @@
 [package]
 name = "fdad-radar"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.70"
-description = "Rust library for the FDAD-DCT radar interface protocol (control channel + data frames)"
+description = "Complete Rust crate for the FDAD-DCT / BWR-T15 radar TCP protocol: login, control registers, JSON settings, and the live target data stream."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-keywords = ["radar", "protocol", "uav", "fdad", "crc16"]
+keywords = ["radar", "protocol", "uav", "fdad", "bwr", "crc16"]
 categories = ["network-programming", "parser-implementations"]
 
 [lib]
@@ -14,6 +14,14 @@ name = "fdad_radar"
 path = "src/lib.rs"
 
 [dependencies]
-# intentionally none: builds fully offline on stable Rust
+# Optional: enable the `serde` feature to (de)serialize the protocol types for
+# Tauri v2 / JS frontends. The crate stays dependency-free when the feature is off.
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+default = []
+# Derive Serialize/Deserialize on the protocol types (camelCase JSON for TypeScript).
+serde = ["dep:serde"]
 
 [dev-dependencies]
+serde_json = "1"

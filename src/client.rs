@@ -21,7 +21,11 @@ impl RadarClient {
         let stream = TcpStream::connect(addr)?;
         stream.set_read_timeout(read_timeout)?;
         stream.set_nodelay(true).ok();
-        let mut c = RadarClient { stream, counter: 1, reader: FrameReader::new() };
+        let mut c = RadarClient {
+            stream,
+            counter: 1,
+            reader: FrameReader::new(),
+        };
         // LOGIN first — the radar sends no data until this handshake.
         c.send_payload(&messages::login(0))?;
         Ok(c)
@@ -40,7 +44,8 @@ impl RadarClient {
     }
 
     fn send_payload(&mut self, payload: &[u8]) -> Result<()> {
-        self.stream.write_all(&Frame::new(payload.to_vec()).encode())?;
+        self.stream
+            .write_all(&Frame::new(payload.to_vec()).encode())?;
         self.stream.flush()?;
         Ok(())
     }
@@ -74,6 +79,33 @@ impl RadarClient {
         let c = self.next_counter();
         self.send_payload(&messages::set_json(c, json))?;
         Ok(c)
+    }
+
+    /// Send a GetRegister command; returns the counter used.
+    pub fn get_register(&mut self, regs: &[u32]) -> Result<u32> {
+        let c = self.next_counter();
+        self.send_payload(&messages::get_register(c, regs))?;
+        Ok(c)
+    }
+
+    /// Send a GetJson command; returns the counter used.
+    pub fn get_json(&mut self) -> Result<u32> {
+        let c = self.next_counter();
+        self.send_payload(&messages::get_json(c))?;
+        Ok(c)
+    }
+
+    /// Read available data and decode every DATA message into header + records.
+    pub fn recv_data(&mut self) -> Result<Vec<crate::messages::DataMessage>> {
+        let mut out = Vec::new();
+        for m in self.recv()? {
+            if m.mtype == crate::messages::MessageType::Data {
+                if let Ok(d) = crate::messages::parse_data_message(&m.body) {
+                    out.push(d);
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Read whatever is available and return parsed messages.

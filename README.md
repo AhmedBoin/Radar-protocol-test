@@ -57,20 +57,69 @@ capture/                    Frida socket dumper, decoder, memory tool, pktmon, p
 capture/samples/            a real captured frame sample
 ```
 
-## Rust crate
+## Rust crate (complete)
+
 ```rust
-use fdad_radar::client::RadarClient;
-use fdad_radar::messages::{self, MessageType};
-// connect() logs in automatically
+use fdad_radar::{RadarClient, MessageType};
+
+// connect() sends LOGIN automatically (required, or the radar streams nothing)
 let mut c = RadarClient::connect("192.168.8.167:5001", None)?;
-c.rotate()?;                 // start sweeping
-c.stop()?;                   // stand by
-for m in c.recv()? {
-    if m.mtype == MessageType::Data {
-        let (hdr, rec) = messages::parse_data(&m.body)?;
-        println!("frame {} sweep {}..{}", hdr.frame_num, hdr.boundary_a / 10000, hdr.boundary_b / 10000);
+
+c.rotate()?;                                    // working-mode reg 0x401 = 0x401
+// c.stop()?;                                   // 0x401 = 0
+// c.set_register(&[(0x440, 0x0003_0102)])?;    // settings block
+// c.set_json(r#"{"position":{"lat":29.8,"lon":31.08,"altitude":0.0,"yaw":0.0},"areas":[]}"#)?;
+// c.get_register(&[0x440, 0x401])?;
+
+// heartbeats (call ~every 10 s) + receive decoded target data
+loop {
+    for d in c.recv_data()? {                   // Vec<DataMessage>
+        println!("sweep {:.1}..{:.1} deg, {} targets",
+                 d.header.boundary_a_deg(), d.header.boundary_b_deg(), d.records.len());
+        for t in &d.records {                   // t: fdad_radar::Record
+            println!("  id={} dist={:.1}m az={:.1}deg h={:.1}m spd={:.1}m/s snr={:.1} rcs={:.2}",
+                     t.id, t.distance_m(), t.azimuth_deg(), t.height_m(), t.speed_mps(), t.snr(), t.rcs());
+        }
     }
+    std::thread::sleep(std::time::Duration::from_millis(100));
 }
+```
+
+### Public API
+
+| Item | Purpose |
+|---|---|
+| `RadarClient::connect/login/heartbeat` | session (login is automatic on connect) |
+| `RadarClient::rotate/stop` | working-mode control |
+| `RadarClient::set_register/get_register/set_json/get_json` | config & registers |
+| `RadarClient::recv` / `recv_data` | raw messages / decoded data messages |
+| `Frame`, `FrameReader` | framing + TCP stream reassembly |
+| `Message`, `MessageType` | `type | counter | body` |
+| `DataHeader`, `Record`, `DataMessage` | decoded sweep header + target records |
+| `messages::{login, heartbeat, set_register, get_register, set_json, get_json}` | payload builders |
+| `messages::{REG_ROTATE, VAL_ROTATE, VAL_STOP, REG_WORKING_MODE, RECORD_LEN}` | constants |
+| `crc::crc16_modbus` | CRC-16/MODBUS |
+
+`Record` exposes raw fields (`x_cm, y_cm, height_cm, vx_cms, vy_cms, kind, id, packed`, plus the
+full `raw: [u8; 64]`) and derived accessors (`distance_m, azimuth_deg, height_m, speed_mps,
+heading_deg, snr, rcs`). Bytes `raw[32..64]` are retained but not yet semantically decoded.
+
+### Frontend / Tauri v2 (`serde` feature)
+
+Enable the optional `serde` feature to (de)serialize the types as **camelCase JSON**:
+
+```toml
+fdad-radar = { path = "…", features = ["serde"] }
+```
+
+Use the flat, render-ready `Sweep` / `Target` types. See **[`TAURI.md`](TAURI.md)** for a full
+Tauri v2 backend (`radar_connect/rotate/stop/set_register` + `radar://sweep` event stream) and a
+React/TS component, plus **[`frontend/radar.d.ts`](frontend/radar.d.ts)** for the hand-written
+TypeScript types.
+
+```rust
+// in a Tauri command / event
+let sweep: fdad_radar::Sweep = data_message.sweep();   // Serialize -> JS
 ```
 
 ## GUI
