@@ -1,74 +1,50 @@
-//! # fdad-radar
+//! # fdad-radar — FDAD‑DCT radar **TCP** protocol
 //!
-//! A Rust library for the **FDAD-DCT v3.0.0** radar interface protocol.
+//! Reverse‑engineered from `FDAD-DCTv3.0.0.exe` and verified against a live BWR‑T15.
 //!
-//! Reverse-engineered from `FDAD-DCTv3.0.0.exe`. It gives you everything needed to
-//! build a new application that talks to the radar: build/parse the control channel,
-//! validate and decode data frames, and read typed target/sweep data.
+//! ## Transport
+//! Plain **TCP** (no TLS); the app is the client, radar at `ip:5001`.
 //!
-//! ## Two channels
-//!
-//! ### 1. Control channel (UDP) — [`control`]
-//! Framing (`QDataStream` big-endian):
+//! ## Frame (both directions, multi‑byte ints big‑endian)
 //! ```text
-//! 7E 7E | LEN(u16 BE) | CMD(u8) | PAYLOAD | CHECKSUM(u8) | 0D 0A
+//! 55 AA 55 AA | LEN (u32 BE = payload+2) | PAYLOAD (LEN-2) | CRC16-MODBUS(payload) (u16 LE)
+//! total bytes = LEN + 8
 //! ```
-//! `CHECKSUM = (sum of bytes from offset 2 .. end of payload) & 0xFF`.
 //!
-//! * Outgoing CMD: internal `0x1A` -> wire `0x21`, internal `0x2A` -> wire `0x23`.
-//! * Incoming CMD: `0xA1`, `0xA2`.
-//!
-//! ### 2. Data channel (UDP) — [`data`]
-//! 16-byte header + payload + **CRC-16/MODBUS**:
-//! ```text
-//! 0: u8 b0 | 1: u8 b1 | 2: u16 TYPE | 4: u16 LEN | 6: u16 b6 | 8: i64 TIMESTAMP
-//! 16: payload (LEN-18 bytes) | LEN-2: u16 CRC16  (CRC over bytes[0..LEN-2])
-//! ```
-//! Frame types: `3`, `4`, `0x22`.
+//! ## Messages — payload starts with `type(u32) | counter(u32)`
+//! | type | dir | meaning |
+//! |---|---|---|
+//! | `0x00000001` | app→radar | heartbeat |
+//! | `0x00000040` | app→radar | set registers |
+//! | `0x00000080` | app→radar | set JSON settings |
+//! | `0x00000082` | app→radar | get JSON |
+//! | `0x00030002` | radar→app | data stream (sweep + tracks) |
 //!
 //! ## Example
 //! ```
-//! use fdad_radar::commands::OutgoingCommand;
-//! use fdad_radar::control::ControlFrame;
-//!
-//! // Build a control frame the radar understands
-//! let f = ControlFrame::new(OutgoingCommand::Ctrl2A, &[0x00, 0x01, 0x02]);
-//! let bytes = f.encode();
-//! assert_eq!(&bytes[0..2], &[0x7E, 0x7E]);
-//! assert_eq!(*bytes.last().unwrap(), 0x0A);
-//!
-//! // Parse it back
-//! let parsed = ControlFrame::decode(&bytes).unwrap();
-//! assert_eq!(parsed.cmd, OutgoingCommand::Ctrl2A);
+//! use fdad_radar::messages::heartbeat;
+//! use fdad_radar::frame::Frame;
+//! let wire = Frame::new(heartbeat(1)).encode();
+//! assert_eq!(&wire[0..4], &[0x55, 0xAA, 0x55, 0xAA]);
 //! ```
 
 #![deny(missing_docs)]
 
-pub mod commands;
-pub mod control;
+pub mod client;
 pub mod crc;
-pub mod data;
 pub mod error;
-pub mod transport;
+pub mod frame;
+pub mod messages;
 
+pub use client::RadarClient;
 pub use error::{Error, Result};
+pub use frame::Frame;
+pub use messages::{DataHeader, Message, MessageType};
 
-/// Protocol constants shared by both channels.
+/// Protocol constants.
 pub mod consts {
-    /// UDP port the radar data/control usually listens on (per radar `nwk.port`).
+    /// Frame magic `55 AA 55 AA`.
+    pub const MAGIC: u32 = crate::frame::MAGIC;
+    /// Default radar TCP port.
     pub const DEFAULT_TCP_PORT: u16 = 5001;
-    /// Default UDP port used by the app (`system.nwk.udpPort`).
-    pub const DEFAULT_UDP_PORT: u16 = 5002;
-
-    /// Control frame start-of-frame byte.
-    pub const SOF: u8 = 0x7E;
-    /// Control frame terminator bytes.
-    pub const EOF: [u8; 2] = [0x0D, 0x0A];
-
-    /// Minimum valid data frame length.
-    pub const DATA_MIN_LEN: usize = 0x15; // 21
-    /// Data frame header size.
-    pub const DATA_HEADER_LEN: usize = 16;
-    /// Size of the CRC trailer.
-    pub const DATA_CRC_LEN: usize = 2;
 }
