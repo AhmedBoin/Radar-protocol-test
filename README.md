@@ -1,103 +1,88 @@
-# fdad-radar
+# fdad-radar — BWR‑T15 radar **TCP** protocol
 
-A Rust crate implementing the **FDAD-DCT v3.0.0 radar interface protocol**
-(reverse-engineered from `FDAD-DCTv3.0.0.exe`). Use it to build a new app that
-**controls the radar and receives its data**.
+Rust crate + Tk GUI + capture toolkit implementing the **FDAD‑DCT v3.0.0** radar interface.
+Reverse‑engineered from `FDAD-DCTv3.0.0.exe` and **verified against a live BWR‑T15** at
+`192.168.8.167:5001`.
 
-* Zero dependencies — builds offline on stable Rust (`edition 2021`).
-* `no_std`-free, `#![deny(missing_docs)]`, fully tested.
+* Full protocol spec: **[`PROTOCOL.md`](PROTOCOL.md)**
+* Working notes: [`RADAR_PROTOCOL_TCP.md`](RADAR_PROTOCOL_TCP.md)
+* *(the `RADAR_PROTOCOL_1/2/3_*.md` files describe an **older UDP** generation — NOT this radar; kept for reference.)*
 
-## Add it to your project
+## Quick facts
+* **Transport:** TCP, client → `radar_ip:5001`, plaintext, big‑endian.
+* **Frame:** `55 AA 55 AA | LEN(u32 BE = payload+2) | PAYLOAD | CRC16-MODBUS(payload) (u16 LE)`.
+* **Login is required first** (`type 0x02`) or the radar streams nothing.
+* **Control:** `SetRegister reg 0x401` = `0x00000401` → **rotate**, `0x00000000` → **stop**.
 
-```toml
-[dependencies]
-fdad-radar = { path = "../fdad-radar-protocol" }   # or a git/path dependency
+## RAW vs DERIVED (important)
+The radar sends **Cartesian position + velocity**; all ranges/angles are computed by us.
+
+### The radar actually sends (raw)
+Per **data message** (`type 0x00030002`):
+`MAC[6] · frameNum(u64) · timestamp(i64 ms) · boundaryA(u32) · boundaryB(u32) · count(u64)`,
+then `count` × **64‑byte** records. Each record, raw:
+
+| off | type | field | unit |
+|---|---|---|---|
+| 0 | i32 | X (east) | cm |
+| 4 | i32 | Y (north) | cm |
+| 8 | i32 | Height | cm |
+| 12 | i32 | Vx | cm/s |
+| 16 | i32 | Vy | cm/s |
+| 20 | i32 | type / menace | — |
+| 24 | u32 | ID (batch NO) | — |
+| 28 | u32 | (SNR×100 << 16) \| (RCS×100) | — |
+
+### We derive (NOT on the wire)
+```
+distance_m  = hypot(X, Y) / 100
+azimuth_deg = degrees(atan2(X, Y)) mod 360     # 0° = north, clockwise
+speed_mps   = hypot(Vx, Vy) / 100
+heading_deg = degrees(atan2(Vx, Vy)) mod 360
+sweep_deg   = boundary / 10000
+height_m    = Height / 100
+snr = (rec[28] >> 16)/100 ;  rcs = (rec[28] & 0xFFFF)/100
+```
+### The original app additionally derives (not sent)
+`Pitch = atan2(Height, ground_range)`, and `Lon/Lat` by geo‑projecting (az, dist) from the
+radar's configured site position.
+
+## Layout
+```
+PROTOCOL.md                 full protocol spec
+src/                        Rust crate: frame.rs, messages.rs, client.rs, crc.rs, error.rs
+examples/radar_cli.rs       CLI: connect, login, receive+parse, control
+gui/radar_gui.py            Tk GUI: Connect/Disconnect, Rotate/Stop, live stable vehicle plot
+capture/                    Frida socket dumper, decoder, memory tool, pktmon, playbook
+capture/samples/            a real captured frame sample
 ```
 
+## Rust crate
 ```rust
-use fdad_radar::commands::OutgoingCommand;
-use fdad_radar::control::ControlFrame;
-use fdad_radar::transport::UdpRadar;
-use std::time::Duration;
-
-let radio = UdpRadar::connect("192.168.8.100:5002")?;
-radio.set_read_timeout(Some(Duration::from_secs(2)))?;
-
-// send a command
-let cmd = ControlFrame::new(OutgoingCommand::Ctrl2A, &[/* payload */]);
-radio.send_control(&cmd)?;
-
-// receive + validate a data frame
-let frame = radio.recv_data_frame()?;
-println!("type={:?} ts={} bytes={}", frame.header.kind(),
-         frame.header.timestamp, frame.payload.len());
-# Ok::<(), fdad_radar::Error>(())
+use fdad_radar::client::RadarClient;
+use fdad_radar::messages::{self, MessageType};
+// connect() logs in automatically
+let mut c = RadarClient::connect("192.168.8.167:5001", None)?;
+c.rotate()?;                 // start sweeping
+c.stop()?;                   // stand by
+for m in c.recv()? {
+    if m.mtype == MessageType::Data {
+        let (hdr, rec) = messages::parse_data(&m.body)?;
+        println!("frame {} sweep {}..{}", hdr.frame_num, hdr.boundary_a / 10000, hdr.boundary_b / 10000);
+    }
+}
 ```
 
-## Protocol summary
-
-### Control channel (UDP) — module `control`
+## GUI
+```sh
+python gui/radar_gui.py     # set the IP/port, click Connect, then Rotate/Stop
 ```
-7E 7E | LEN(u16 BE) | CMD(u8) | PAYLOAD | CHECKSUM(u8) | 0D 0A
-CHECKSUM = (sum of bytes from offset 2 .. end of payload) & 0xFF
-```
-* Outgoing: internal `0x1A` -> wire `0x21`, internal `0x2A` -> wire `0x23`.
-* Incoming: `0xA1`, `0xA2` (see `commands::StatusA1`).
-* Helpers: `ControlFrame::encode/decode`, `control::split_frames` for streams.
-
-### Data channel (UDP) — module `data`
-```
-0: u8 b0 | 1: u8 b1 | 2: u16 TYPE | 4: u16 LEN | 6: u16 b6 | 8: i64 TIMESTAMP
-16: payload (LEN-18) | LEN-2: u16 CRC16   (CRC-16/MODBUS over bytes[0..LEN-2])
-```
-* Frame types: `3`, `4`, `0x22` (`data::FrameType`).
-* `data::DataFrame::parse` validates the CRC and splits header/payload.
-* `data::Type4Record` decodes the type‑4 payload field-by-field.
-
-### CRC — module `crc`
-`crc::crc16_modbus(data)` — poly `0xA001`, init `0xFFFF`, no final XOR
-(check value of `"123456789"` is `0x4B37`).
-
-## Modules
-
-| Module | Purpose |
-|---|---|
-| `control` | `7E 7E` control framing (`ControlFrame`, `IncomingFrame`, `split_frames`) |
-| `commands` | command code enums + `StatusA1`, `RadarHardware`, `WorkingMode` |
-| `data` | data frame header/parse + `Type4Record`, `Target`, `TrackFrame`, `CfarPoint`, `AlarmPoint` |
-| `crc` | CRC‑16/MODBUS |
-| `transport` | `UdpRadar` and `TcpRadar` clients |
-| `error` | `Error` / `Result` |
-
-## Data model (from the app's SQLite schemas)
-
-* **frame** — `track_frame`: `version, frame_num, real_frame_num, refresh_time, boundary_a, boundary_b, direction`
-* **target** — union of `track1/2/3_data`: `tid, frame_num, version, velocity, velocity_direction, distance, range, azimuth, height, snr, rcs, type, beam, doppler, dw, pulse, ri, di, priv_*`
-* **cfar** — `cfar_data`: `distance, azimuth, height, pitch, doppler, di, ri, snr, beam, pulse`
-* **alarm** — `alarm_data`: `frame_num, lat, lon, height, speed`
-
-Timebase: each data frame carries an `i64` timestamp (header offset 8) and a frame
-counter; one frame == one antenna revolution (sweep period from the working mode:
-`Cir sweep 1s/2s/3s/4s`, `Fan sweep`, `Stand by`).
 
 ## Build & test
-
 ```sh
-cargo build
-cargo test
-cargo run --example basic            # offline demo
-cargo run --example basic 192.168.8.100:5002   # talk to a real radar
+cargo test        # frame + message encoders asserted byte-for-byte against real captures
+cargo run --example radar_cli -- 192.168.8.167:5001 --secs 15
 ```
 
-## Status / limitations
-
-Confirmed from the binary: framing, checksums/CRC, command codes, the 16-byte header,
-frame types, the type‑4 payload layout, and the full data model.
-
-**Still to validate against a live capture** (see the `.md` docs shipped next to the app):
-the semantic names of the `0xA1`/`0xA2` fields, the header bytes `b0`/`b1`/`b6`,
-and the type‑3 / `0x22` record field maps. Names used here are documented as such.
-
 ## License
-
 MIT OR Apache-2.0.

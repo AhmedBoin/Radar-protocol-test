@@ -1,5 +1,10 @@
 # Radar Protocol — Part 1: Overview & Control Channel
 
+> ⚠️ **LEGACY (UDP generation) — NOT the protocol this BWR‑T15 uses.** This describes an
+> older UDP radar generation found in the binary. The actual radar uses the **TCP**
+> protocol in **[`PROTOCOL.md`](PROTOCOL.md)**. Kept for reference only.
+
+
 Applies to `FDAD-DCTv3.0.0.exe` (PE32, MinGW GCC, Qt 5). Derived by static analysis.
 Legend: **[C]** confirmed in code · **[P]** inferred (verify with capture) · **[?]** unknown.
 

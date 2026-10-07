@@ -1,5 +1,9 @@
 # Radar Protocol — Part 3: Time Base, Scan/Speed, Target Data
 
+> ⚠️ **LEGACY (UDP generation) — NOT this radar.** See **[`PROTOCOL.md`](PROTOCOL.md)** for
+> the real **TCP** protocol used by the BWR‑T15. Kept for reference only.
+
+
 Legend: **[C]** confirmed in code · **[P]** inferred · **[?]** unknown.
 
 ## 1. Time base  **[C/P]**

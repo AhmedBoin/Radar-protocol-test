@@ -95,6 +95,32 @@ rcs        = (rec[28] & 0xFFFF) / 100
 Example (id 820): X=−495595, Y=783412 → **dist 9270.1 m** (DB 9270.11 ✅),
 **az 327.7°** (DB 326.2 ✅); Vx=1996, Vy=−1024 → **speed 22.44 m/s** (DB 22.48 ✅).
 
+## 4b. RAW (on the wire) vs DERIVED (computed)  ✅
+The radar transmits **Cartesian position + velocity** — every range/angle is our math.
+
+**The radar sends (raw), per vehicle record:** `X, Y, Height, Vx, Vy, type, ID, SNR, RCS`
+(see the table in §4). Nothing polar is on the wire.
+
+**We derive (NOT sent):**
+| derived | formula |
+|---|---|
+| distance_m | `hypot(X, Y) / 100` |
+| azimuth_deg | `degrees(atan2(X, Y)) mod 360` (0° = north, clockwise) |
+| speed_mps | `hypot(Vx, Vy) / 100` |
+| heading_deg | `degrees(atan2(Vx, Vy)) mod 360` |
+| height_m | `Height / 100` |
+| snr / rcs | unpack from `rec[28]` |
+| sweep_deg | `boundary / 10000` |
+
+**The original app additionally derives (also NOT on the wire):**
+* `Pitch = atan2(Height, ground_range)`
+* `Lon` / `Lat` — geo‑projection of `(azimuth, distance)` from the radar's configured
+  site position (`setting.json → radars[].coord {lat,lon,azi}`).
+* `SpeedDir` — heading display.
+
+> Cross‑check: `id 820` raw `X=−495595, Y=783412` → derived **dist 9270 m / az 327°**,
+> which equal the app's own DB/CSV values — proving Distance/Azimuth are **derived**, not sent.
+
 ## 5. Control  ✅
 | action | command |
 |---|---|

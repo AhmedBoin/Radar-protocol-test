@@ -1,5 +1,9 @@
 # Radar Protocol — Part 2: Data Channel (header, CRC, frame types)
 
+> ⚠️ **LEGACY (UDP generation) — NOT this radar.** See **[`PROTOCOL.md`](PROTOCOL.md)** for
+> the real **TCP** protocol used by the BWR‑T15. Kept for reference only.
+
+
 Legend: **[C]** confirmed in code · **[P]** inferred · **[?]** unknown.
 
 ## 1. Receiver & validation  **[C]**
